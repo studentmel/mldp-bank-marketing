@@ -702,3 +702,46 @@ def apply_theme():
 # SECTION 5: LOADING MODEL FUNCTIONS
 
 # so that can load the trained model
+
+@st.cache_resource # Cache function so that only runs once, IMPORTATN
+def load_models():
+    """Firslty, have to load saved models using joblib"""
+    try:
+        model = joblib.load("best_model.pkl") # trained Random Forest model
+        scaler = joblib.load("scaler.pkl") # StandardScaler
+        feature_columns = joblib.load("feature_columns.pkl") # feature column names
+        return model, scaler, feature_columns
+    except FileNotFoundError:
+        # If file is missing, then for debug
+        st.error("Model files not found. Please run Jupyter notebook first to generate .pkl files")
+        st.info("Required files: best_model.pkl, scaler.pkl, feature_columns.pkl")
+        return None, None, None
+
+
+@st.cache_resource # Cache this function too
+def load_thresholds():
+    """
+    This is to load median thresholds for economic_condition feature engineering"""
+    try:
+        #loading from saved thresholds.pkl file
+        thresholds = joblib.load("thresholds.pkl")
+        return thresholds['emp_median'], thresholds['nr_median']
+    except FileNotFoundError:
+        try:
+            # Config a fallback such that if thresholds.pkl not found, recalculate from raw dataset
+            df = pd.read_csv('bank-additional-full.csv', sep=';') #original dataset
+            df = df.drop_duplicates() #Removing duplicate rows
+            df = df.drop(['duration', 'campaign'], axis=1) #Removing data leakage columns
+            df.loc[df['y'] == 'yes', 'y'] = 1 #Encoding target: yes to 1
+            df.loc[df['y'] == 'no', 'y'] = 0 #Encoding target: no to 0
+            df['y'] = df['y'].astype(int) #target to integer
+            X = df.drop('y', axis=1) #Separate features
+            y = df['y'] #target
+            from sklearn.model_selection import train_test_split
+            # redo train-test split
+            X_train, _, _, _ = train_test_split(X, y, test_size=0.3, random_state=2025, stratify=y)
+            return X_train['emp.var.rate'].median(), X_train['nr.employed'].median()
+        except FileNotFoundError:
+            # last last falllback is hardcoded default values
+            return 1.1, 5191.0
+
