@@ -965,3 +965,673 @@ def generate_recommendations(prediction, probability, age, job, poutcome, emp_va
 
 #---------------------------------------------------------------------------------------------------------
 # SECTION 8: MAIN APP
+
+def main():
+    # Firslty, need to load all model files
+    model, scaler, feature_columns = load_models()
+    emp_median, nr_median = load_thresholds() # and economic condition thresholds
+
+    # also need to apply CSS theme so can use dark and light 
+    apply_theme()
+
+    # SIDEBAR
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align:center; padding: 1rem 0 1.2rem;">
+            <div style="font-size:2rem; margin-bottom:0.3rem;">🤖</div>
+            <div style="font-size:1.4rem; font-weight:700; background: linear-gradient(135deg, #5EFCE8, #6C63FF);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;">BankConvert AI</div>
+            <div style="font-size:0.75rem; color:rgba(255,255,255,0.4) !important; margin-top:0.2rem;
+            letter-spacing:0.08em; text-transform:uppercase;">ML Prediction Engine</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---") # divider line for neat
+
+        # Theme toggle but show current state first
+        theme_label = "🌙 Dark Mode" if get_theme() == "dark" else "☀️ Light Mode"
+        if st.button(theme_label, key="theme_toggle"):            
+            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+            st.rerun() # Rerun to apply new theme
+
+        st.markdown("---")
+
+        # MODEL STATS so that can know 
+        st.markdown("""
+        <div class="sb-card"><span class="sb-label">Model</span><span class="sb-value">Random Forest</span></div>
+        <div class="sb-card"><span class="sb-label">F1-Score</span><span class="sb-value">48.58%</span></div>
+        <div class="sb-card"><span class="sb-label">Recall</span><span class="sb-value">52.37%</span></div>
+        <div class="sb-card"><span class="sb-label">Test Results</span><span class="sb-value">729 / 1,392</span></div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # for me 
+        st.markdown("### Developer")
+        st.markdown("**Melissa Kuah** (2404487G)  \nML for Developers (P01) \nTemasek Polytechnic")
+
+        st.markdown("---")
+
+        # Model improvement summary so that can pitch better 
+        st.markdown("### Improvement")
+        st.markdown("""
+        Recall: **31.68% => 52.37%**  
+        Finding **+288 more** subscribers  
+        F1: **39.52% => 48.58%**
+        """)
+
+    # HERO HEADER
+    st.markdown("""
+    <div class="hero">
+        <h1>BankConvert AI</h1>
+        <div class="subtitle">Predict term deposit subscription likelihood before the call</div>
+        <div class="badge">🤖 Random Forest · Tuned · class_weight='balanced'</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # TABS
+    tab1, tab2, tab3, tab4 = st.tabs(["🔮  Predict", "📊  Performance", "🧠  How It Works", "📋  About"])
+
+    # TAB 1: PREDICT
+    # To allow user to input customer data and get a prediction
+    with tab1:
+        # model must be loaded successfully first
+        if model is None:
+            st.warning("⚠️ Model not loaded. Ensure best_model.pkl, scaler.pkl, and feature_columns.pkl are in the same directory as this app.")
+            return # cant continue
+
+        st.markdown("""
+        <div class="section-header">
+            <h3>Enter Customer Information</h3>
+            <p>Fill in the customer details below to predict their likelihood of subscribing to a term deposit.
+            Adjust the sliders and dropdowns, then click <strong>Run Prediction</strong> to see results.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Demographics Section
+        st.markdown('<div class="section-label">👤 Customer Demographics</div>', unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3) 
+
+        with col1: 
+            age = st.slider("Age", 18, 95, 35, help="Customer's age in years") 
+            job = st.selectbox("Occupation", ['admin.', 'blue-collar', 'entrepreneur', 'housemaid',
+                                              'management', 'retired', 'self-employed', 'services',
+                                              'student', 'technician', 'unemployed', 'unknown'],
+                               help="Customer's job type") 
+        with col2: 
+            marital = st.selectbox("Marital Status", ['single', 'married', 'divorced', 'unknown'])
+            education = st.selectbox("Education Level", ['basic.4y', 'basic.6y', 'basic.9y', 'high.school',
+                                                         'illiterate', 'professional.course',
+                                                         'university.degree', 'unknown'],
+                                     help="Highest education completed")
+        with col3: 
+            default = st.selectbox("Credit Default", ['no', 'yes', 'unknown'],
+                                   help="Has the customer defaulted on credit?")
+            housing = st.selectbox("Housing Loan", ['no', 'yes', 'unknown'],
+                                   help="Does the customer have a housing loan?")
+
+        st.markdown("---") 
+
+        # Contact & Campaign Section
+        st.markdown('<div class="section-label">📞 Contact & Campaign Details</div>', unsafe_allow_html=True)
+        col4, col5, col6 = st.columns(3)
+
+        with col4:
+            loan = st.selectbox("Personal Loan", ['no', 'yes', 'unknown'],
+                                help="Does the customer have a personal loan?")
+            contact = st.selectbox("Contact Method", ['cellular', 'telephone'],
+                                   help="How was the customer contacted?")
+        with col5:
+            month = st.selectbox("Last Contact Month", ['jan','feb','mar','apr','may','jun',
+                                                        'jul','aug','sep','oct','nov','dec'],
+                                 help="Month of last contact in current campaign")
+            day_of_week = st.selectbox("Last Contact Day", ['mon','tue','wed','thu','fri'],
+                                       help="Day of last contact in current campaign")
+        with col6:
+            pdays = st.slider("Days Since Last Contact", 0, 999, 999,
+                              help="Number of days since last contact from a previous campaign. 999 = customer was never contacted before")
+            previous = st.slider("Previous Campaign Contacts", 0, 10, 0,
+                                 help="How many times was this customer contacted in previous campaigns?")
+
+        st.markdown("---")
+
+        # Economic Indicators Section
+        st.markdown('<div class="section-label">🌍 Economic Indicators & Previous Outcome</div>', unsafe_allow_html=True)
+        col7, col8 = st.columns(2) 
+
+        with col7:
+            poutcome = st.selectbox("Previous Campaign Outcome", ['nonexistent', 'failure', 'success'],
+                                    help="Outcome of the previous marketing campaign for this customer")
+            emp_var_rate = st.slider("Employment Variation Rate", -3.5, 1.5, 1.1, 0.1,
+                                     help="Quarterly employment rate change. Negative = declining economy")
+            cons_price_idx = st.slider("Consumer Price Index", 92.0, 95.0, 93.75, 0.01,
+                                       help="Monthly indicator of consumer goods price changes")
+        with col8:
+            cons_conf_idx = st.slider("Consumer Confidence Index", -51.0, -26.0, -40.0, 0.1,
+                                      help="Monthly indicator of consumer economic confidence. More negative = less confident")
+            euribor3m = st.slider("Euribor 3-Month Rate", 0.5, 5.5, 4.5, 0.01,
+                                   help="European interbank lending rate. Lower rate = looser monetary policy")
+            nr_employed = st.slider("Employed (thousands)", 4900.0, 5300.0, 5100.0, 1.0,
+                                    help="Quarterly average number of employees in Portugal (thousands)")
+
+        st.markdown("---")
+
+        # Predict Button
+        if st.button("Run Prediction"):
+
+            # INPUT VALIDATION
+            # To warn user potentially contradictory inputs
+            has_warning = False
+
+            # Check: pdays set but previous = 0 
+            if pdays != 999 and previous == 0:
+                st.warning("⚠️ **Input Check:** You set days since last contact but previous contacts is 0. If the customer was contacted before, previous contacts should be ≥ 1.")
+                has_warning = True
+
+            # Check: previous outcome = success but never contacted
+            if poutcome == 'success' and pdays == 999:
+                st.warning("⚠️ **Input Check:** Previous outcome is 'success' but days since contact is 999 (never contacted). These are contradictory - please verify.")
+                has_warning = True
+
+            # Check: previous outcome set but previous contacts = 0
+            if poutcome != 'nonexistent' and previous == 0:
+                st.warning("⚠️ **Input Check:** Previous outcome is set but previous contacts is 0. If there was a previous campaign, contacts should be ≥ 1.")
+                has_warning = True
+
+            # Check: very young person but if job retired
+            if age < 25 and job == 'retired':
+                st.warning("⚠️ **Input Check:** Customer is under 25 but listed as retired - please verify age and occupation.")
+                has_warning = True
+
+            # Check: elderly person listed as student
+            if age > 65 and job == 'student':
+                st.warning("⚠️ **Input Check:** Customer is over 65 but listed as student - please verify age and occupation.")
+                has_warning = True
+
+            # data frame need for user input
+            
+            input_data = pd.DataFrame({
+                'age': [age], 'job': [job], 'marital': [marital], 'education': [education],
+                'default': [default], 'housing': [housing], 'loan': [loan], 'contact': [contact],
+                'month': [month], 'day_of_week': [day_of_week], 'pdays': [pdays],
+                'previous': [previous], 'poutcome': [poutcome], 'emp.var.rate': [emp_var_rate],
+                'cons.price.idx': [cons_price_idx], 'cons.conf.idx': [cons_conf_idx],
+                'euribor3m': [euribor3m], 'nr.employed': [nr_employed]
+            })
+
+            try:
+                # RUN PREDICTION
+                with st.spinner("Analysing customer profile..."):
+                    
+                    processed = preprocess_input(input_data, feature_columns, scaler, emp_median, nr_median)
+                    
+                    prediction = model.predict(processed)[0]
+                    # model probability after predict
+                    probability = model.predict_proba(processed)[0][1] if hasattr(model, 'predict_proba') else (0.7 if prediction == 1 else 0.3)
+
+                # CUSTOMER PROFILE SUMMARY                
+                st.markdown("---")
+                pdays_display = "Never contacted" if pdays == 999 else f"{pdays} days ago"
+                st.markdown(f"""
+                <div class="profile-summary">
+                    <div class="profile-title">👤 Customer Profile Summary</div>
+                    <div class="profile-grid">
+                        <div class="profile-item">
+                            <span class="p-label">Age</span>
+                            <span class="p-value">{age}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Job</span>
+                            <span class="p-value">{job}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Marital</span>
+                            <span class="p-value">{marital}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Education</span>
+                            <span class="p-value">{education}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Credit Default</span>
+                            <span class="p-value">{default}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Housing Loan</span>
+                            <span class="p-value">{housing}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Personal Loan</span>
+                            <span class="p-value">{loan}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Contact</span>
+                            <span class="p-value">{contact}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Last Contact</span>
+                            <span class="p-value">{pdays_display}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="p-label">Previous Outcome</span>
+                            <span class="p-value">{poutcome}</span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # PREDICTION RESULTS
+                st.markdown("### Prediction Results")
+                r1, r2 = st.columns([1, 1]) 
+
+                with r1: 
+                    st.plotly_chart(create_gauge_chart(probability), use_container_width=True)
+
+                with r2: 
+                    if prediction == 1: # YES
+                        st.markdown(f"""
+                        <div class="result-yes">
+                            <h2>✅ LIKELY TO SUBSCRIBE</h2>
+                            <div class="conf">{probability*100:.1f}% confidence</div>
+                            <p>High potential - prioritise this customer for follow-up calls</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else: # NO
+                        st.markdown(f"""
+                        <div class="result-no">
+                            <h2>❌ UNLIKELY TO SUBSCRIBE</h2>
+                            <div class="conf">{(1-probability)*100:.1f}% confidence (non-subscription)</div>
+                            <p>Low potential - deprioritise and focus on higher-probability prospects</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                # RECOMMENDED ACTIONS
+                st.markdown("---")
+                actions = generate_recommendations(
+                    prediction, probability, age, job, poutcome, emp_var_rate,
+                    pdays, previous, default, housing, loan, contact, education
+                )
+                action_label = "🟢 Recommended Actions - High Potential" if prediction == 1 else "🔴 Recommended Actions - Low Potential"
+            
+                actions_html = "".join([
+                    f'<div class="action-item"><span class="action-bullet">→</span><span class="action-text">{a}</span></div>'
+                    for a in actions
+                ])
+                st.markdown(f"""
+                <div class="action-card">
+                    <div class="action-title">{action_label}</div>
+                    {actions_html}
+                </div>
+                """, unsafe_allow_html=True)
+
+                # BUSINESS INSIGHT CARDS
+                st.markdown("### Business Insights")
+                i1, i2 = st.columns(2)
+                with i1: 
+                    st.markdown(f"""
+                    <div class="card">
+                        <h4>📋 Campaign History</h4>
+                        <p>Previous outcome: <strong>{poutcome}</strong><br>
+                        {'✅ Prior success - strong positive signal for subscription' if poutcome == 'success'
+                         else '📌 No prior success - focus on relationship building first'}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                with i2: 
+                    st.markdown(f"""
+                    <div class="card">
+                        <h4>🌍 Economic Context</h4>
+                        <p>Employment Variation Rate: <strong>{emp_var_rate}</strong><br>
+                        {'⚠️ Strong economy - customers may prefer higher-risk investments over term deposits' if emp_var_rate > 0
+                         else '✅ Weaker economy - customers seek safe investments like term deposits'}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            except Exception as e:
+                # anything goes wrong during prediction
+                st.error(f"❌ Prediction error: {str(e)}")
+                st.info("💡 Please ensure all model files (best_model.pkl, scaler.pkl, feature_columns.pkl) are present and the input values are valid.")
+
+
+
+
+
+    # TAB 2: PERFORMANCE
+    with tab2:
+        st.markdown("""
+        <div class="section-header">
+            <h3>Model Performance</h3>
+            <p>Comparison of model metrics across iterative improvements, showcasing how tuning and class balancing boosted recall to find more subscribers.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="metric-row">
+            <div class="metric-pill">
+                <div class="value">48.58%</div>
+                <div class="label">F1-Score</div>
+            </div>
+            <div class="metric-pill">
+                <div class="value">52.37%</div>
+                <div class="label">Recall</div>
+            </div>
+            <div class="metric-pill">
+                <div class="value">729</div>
+                <div class="label">Subscribers Found</div>
+            </div>
+            <div class="metric-pill">
+                <div class="value">+65%</div>
+                <div class="label">Recall Improvement</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Before vs After comparison
+        st.markdown("#### Before vs After Tuning")
+        st.markdown("""
+        | Metric | Iteration 1 (Default) | Iteration 3 (Tuned) | Change |
+        |--------|----------------------|---------------------|--------|
+        | **F1-Score** | 39.52% | **48.58%** | +22.9% |
+        | **Recall** | 31.68% | **52.37%** | +65.3% |
+        | **Subscribers Found** | ~441 | **729** | +288 more |
+        """)
+
+        st.markdown("---")
+
+        
+        st.markdown("#### Iterative Improvement Journey")
+        st.markdown("""
+        <div class="journey">
+            <div class="num">0</div>
+            <div class="content">
+                <div class="title">Baseline - DummyClassifier</div>
+                <div class="desc">Always predicts "No". 88.73% accuracy but 0% recall - completely misses all subscribers.</div>
+            </div>
+        </div>
+        <div class="journey">
+            <div class="num">1</div>
+            <div class="content">
+                <div class="title">4 Default Models Compared</div>
+                <div class="desc">Logistic Regression, Decision Tree, Random Forest, Gradient Boosting. Random Forest best: F1 = 0.3952, Recall = 0.3168</div>
+            </div>
+        </div>
+        <div class="journey">
+            <div class="num">2</div>
+            <div class="content">
+                <div class="title">class_weight='balanced' Applied</div>
+                <div class="desc">Forces models to pay equal attention to minority "Yes" class. Dramatically improved recall across all models.</div>
+            </div>
+        </div>
+        <div class="journey">
+            <div class="num">3</div>
+            <div class="content">
+                <div class="title">RandomizedSearchCV Hyperparameter Tuning</div>
+                <div class="desc">Optimised hyperparameters with 5-fold cross-validation. Final: Random Forest (tuned) - F1 = 0.4858, Recall = 0.5237. Now finds 729 out of 1,392 subscribers.</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        c1, c2 = st.columns(2)
+        with c1: # show user top predictive features
+            st.markdown("""
+            <div class="card">
+                <h4>🏆 Top Predictive Features</h4>
+                <p>
+                <strong>1. euribor3m</strong> - European interbank interest rate<br>
+                <strong>2. nr.employed</strong> - Employment level in economy<br>
+                <strong>3. emp.var.rate</strong> - Employment variation rate<br>
+                <strong>4. cons.conf.idx</strong> - Consumer confidence index<br>
+                <strong>5. age</strong> - Customer age<br><br>
+                <em>Economic indicators dominate ~40% of total importance - this makes business sense since economic conditions heavily influence whether customers invest in term deposits.</em>
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+        with c2: # ngineered features importance
+            st.markdown("""
+            <div class="card">
+                <h4>🔧 Engineered Features (~11.5% Total)</h4>
+                <p>
+                <strong>age_group</strong> - 3.1% importance<br>
+                <strong>contact_recency</strong> - 2.9% importance<br>
+                <strong>contacted_before</strong> - 2.3% importance<br>
+                <strong>economic_condition</strong> - 1.7% importance<br>
+                <strong>prev_success</strong> - 1.5% importance<br><br>
+                <em>All 5 engineered features add meaningful predictive signal that raw features alone cannot capture.</em>
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+
+        st.markdown("""
+        <div class="card">
+            <h4>⚖️ Why Accuracy Decreased (And Why That's OK)</h4>
+            <p>Accuracy dropped from ~89% (baseline) to ~87% (final model). This is <strong>acceptable</strong> because:</p>
+            <p>
+            • The baseline achieves 89% accuracy by always predicting "No" - it finds <strong>zero</strong> subscribers<br>
+            • Our model sacrifices 2% accuracy to find <strong>729 real subscribers</strong> which is +288 more !<br>
+            • Cost of missing a subscriber (lost term deposit revenue) far exceeds the cost of an extra phone call
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # TAB 3: HOW IT WORKS
+    with tab3:
+        st.markdown("""
+        <div class="section-header">
+            <h3>How BankConvert AI Works</h3>
+            <p>A breakdown of the ML pipeline - from business problem to deployed prediction model.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Business problem card
+        st.markdown("""
+        <div class="card">
+            <h4>🎯 The Business Problem</h4>
+            <p>Banks use phone campaigns to promote term deposits, but only <strong>~11%</strong> of customers subscribe.
+            Relationship Managers waste hours calling uninterested customers. BankConvert AI predicts <strong>before the call</strong>
+            which customers are most likely to subscribe - allowing RMs to prioritise their time and increase conversion rates.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ML Pipeline Workflow Diagram
+        st.markdown("""
+        <div class="pipeline">
+            <div class="step">
+                <div class="step-icon">📊</div>
+                <div class="step-label">Customer Data</div>
+                <div class="step-desc">18 features input</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="step">
+                <div class="step-icon">🧹</div>
+                <div class="step-label">Preprocessing</div>
+                <div class="step-desc">Clean & encode</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="step">
+                <div class="step-icon">🔧</div>
+                <div class="step-label">Feature Eng.</div>
+                <div class="step-desc">5 new features</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="step">
+                <div class="step-icon">🤖</div>
+                <div class="step-label">ML Model</div>
+                <div class="step-desc">Random Forest</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="step">
+                <div class="step-icon">✅</div>
+                <div class="step-label">Prediction</div>
+                <div class="step-desc">Yes / No + %</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="step">
+                <div class="step-icon">📞</div>
+                <div class="step-label">RM Action</div>
+                <div class="step-desc">Prioritised calls</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("""
+            <div class="card">
+                <h4>📊 Data Preprocessing</h4>
+                <p>
+                • <strong>One-Hot Encoding</strong> for all categorical variables<br>
+                • <strong>StandardScaler</strong> for numerical features<br>
+                • <strong>70/30 train-test split</strong> with stratification<br>
+                • Removed <strong>duration</strong> & <strong>campaign</strong> (data leakage prevention)
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with c2:
+            st.markdown("""
+            <div class="card">
+                <h4>🔧 Feature Engineering (5 New Features)</h4>
+                <p>
+                • <strong>age_group</strong> - Young / Middle / Senior / Elderly<br>
+                • <strong>contacted_before</strong> - Was customer contacted before? (binary)<br>
+                • <strong>prev_success</strong> - Did previous campaign succeed? (binary)<br>
+                • <strong>economic_condition</strong> - Good / Neutral / Bad (median-based)<br>
+                • <strong>contact_recency</strong> - Never / Recent / Medium / Long
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="card">
+            <h4>⚠️ Data Leakage Prevention</h4>
+            <p>Two features were <strong>removed</strong> because they are only available <strong>after</strong> the call ends:</p>
+            <p>
+            • <strong>duration</strong> - Call length is only known after the call ends<br>
+            • <strong>campaign</strong> - Total number of contacts is only known after all calls are made
+            </p>
+            <p>Since the goal is to predict subscription <strong>before making the call</strong>, including these features would
+            create unrealistically high accuracy that cannot be replicated in real-world deployment.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+        # Model selection & tuning card
+        st.markdown("""
+        <div class="card">
+            <h4>🤖 Model Selection & Tuning</h4>
+            <p>
+            • <strong>4 algorithms compared:</strong> Logistic Regression, Decision Tree, Random Forest, Gradient Boosting<br>
+            • <strong>Class imbalance handling:</strong> class_weight='balanced' to address 89/11 class split<br>
+            • <strong>Hyperparameter tuning:</strong> RandomizedSearchCV with 5-fold cross-validation<br>
+            • <strong>Winner:</strong> Random Forest (tuned) - best balance of F1-Score and Recall
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Before vs After Comparison
+        st.markdown("---")
+        st.markdown("""
+        <div class="compare-container">
+            <div class="compare-side compare-before">
+                <div class="compare-icon">❌</div>
+                <div class="compare-title">Without BankConvert AI</div>
+                <div class="compare-stat">
+                    <strong>Random calling</strong> from full customer list<br>
+                    Only <strong>11% conversion rate</strong><br>
+                    E.g. 500 calls → ~55 subscribers<br>
+                    <strong>Wasted calls</strong> on uninterested customers<br>
+                    RMs spend hours with low return
+                </div>
+            </div>
+            <div class="compare-vs">VS</div>
+            <div class="compare-side compare-after">
+                <div class="compare-icon">✅</div>
+                <div class="compare-title">With BankConvert AI</div>
+                <div class="compare-stat">
+                    <strong>Prioritised calling</strong> based on ML predictions<br>
+                    <strong>52% recall</strong> on flagged customers<br>
+                    Focus on top prospects first<br>
+                    <strong>Fewer wasted calls</strong>, higher conversion<br>
+                    RMs maximise their valuable time
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # TAB 4: ABOUT
+    with tab4:
+        st.markdown("""
+        <div class="section-header">
+            <h3>About This Project</h3>
+            <p>Project details, dataset information, and technical specifications.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Project information card
+        st.markdown("""
+        <div class="card">
+            <h4>📌 Project Information</h4>
+            <p>
+            <strong>Module:</strong> Machine Learning for Developers<br>
+            <strong>Institution:</strong> Temasek Polytechnic<br>
+            <strong>Developer:</strong> Melissa Kuah (2404487G)<br>
+            <strong>Final Model:</strong> Random Forest (tuned) with class_weight='balanced'<br>
+            <strong>Key Metrics:</strong> F1-Score = 48.58% · Recall = 52.37% · Finds 729/1,392 subscribers
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="card">
+            <h4>📂 Dataset</h4>
+            <p>
+            <strong>UCI Bank Marketing Dataset</strong><br>
+            • 41,188 real customer interactions from a Portuguese banking institution<br>
+            • Period: May 2008 - November 2010<br>
+            • Source: UCI Machine Learning Repository
+            </p>
+            <p><em>https://www.kaggle.com/datasets/henriqueyamahata/bank-marketing</em></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("""
+            <div class="card">
+                <h4>🛠️ Tech Stack</h4>
+                <p>
+                <strong>ML Library:</strong> scikit-learn<br>
+                &nbsp;&nbsp;- RandomForestClassifier<br>
+                &nbsp;&nbsp;- StandardScaler<br>
+                &nbsp;&nbsp;- RandomizedSearchCV<br>
+                <strong>Web App:</strong> Streamlit + Plotly<br>
+                <strong>Data:</strong> pandas, numpy<br>
+                <strong>Imports:</strong> joblib (.pkl files)
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with c2:
+            st.markdown("""
+            <div class="card">
+                <h4>🧪 ML Techniques Used</h4>
+                <p>
+                <strong>1.</strong> One-Hot Encoding + StandardScaler<br>
+                <strong>2.</strong> Stratified train-test split (70/30)<br>
+                <strong>3.</strong> 5 engineered features from dataset<br>
+                <strong>4.</strong> class_weight='balanced' for imbalanced dataset<br>
+                <strong>5.</strong> RandomizedSearchCV (5-fold CV)<br>
+                <strong>6.</strong> F1 & Recall prioritised over Accuracy
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
+#---------------------------------------------------------------------------------------------------------
