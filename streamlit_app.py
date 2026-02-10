@@ -800,5 +800,168 @@ def create_gauge_chart(probability):
         plot_bgcolor='rgba(0,0,0,0)'
     )
     return fig
+#---------------------------------------------------------------------------------------------------------
 
 
+
+
+#---------------------------------------------------------------------------------------------------------
+# SECTION 6: FEATURE ENGINEERING 
+# need do the preprocessing again same as jupyter 
+
+
+def create_feature_engineering(input_data, emp_median, nr_median):
+    df = input_data.copy() # This need to make copy so that need to avoid modifying og data
+
+#---------------------------------------------------------------------------------------------------------
+    # Feature 1: Age Group
+    # same as jupyter 
+
+    age = df['age'].iloc[0] 
+    if age <= 30:
+        age_group = 'Young'
+    elif age <= 45:
+        age_group = 'Middle'
+    elif age <= 60:
+        age_group = 'Senior'
+    else:
+        age_group = 'Elderly'
+    df['age_group'] = age_group 
+#---------------------------------------------------------------------------------------------------------
+    # Feature 2: Contacted Before
+
+    df['contacted_before'] = (df['pdays'] != 999).astype(int)
+#---------------------------------------------------------------------------------------------------------
+    # Feature 3: Previous Success
+    df['prev_success'] = (df['poutcome'] == 'success').astype(int)
+#---------------------------------------------------------------------------------------------------------
+    # Feature 4: Economic Condition
+    emp_var_rate = df['emp.var.rate'].iloc[0]
+    nr_employed = df['nr.employed'].iloc[0]
+    if emp_var_rate > emp_median and nr_employed > nr_median:
+        economic_condition = 'Good'
+    elif emp_var_rate <= emp_median and nr_employed <= nr_median:
+        economic_condition = 'Bad'
+    else:
+        economic_condition = 'Neutral'
+    df['economic_condition'] = economic_condition
+#---------------------------------------------------------------------------------------------------------
+    # Feature 5: Contact Recency
+    pdays = df['pdays'].iloc[0]
+    if pdays == 999:
+        contact_recency = 'Never'
+    elif pdays <= 7:
+        contact_recency = 'Recent'
+    elif pdays <= 30:
+        contact_recency = 'Medium'
+    else:
+        contact_recency = 'Long'
+    df['contact_recency'] = contact_recency
+
+    return df #5 new feature columns
+#---------------------------------------------------------------------------------------------------------
+
+def preprocess_input(input_data, feature_columns, scaler, emp_median, nr_median):
+    
+    # Step 1: Firstly, need to apply 5 engineered features
+    df = create_feature_engineering(input_data, emp_median, nr_median)
+
+    # Step 2: One-Hot Encoding
+    categorical_cols = ['job', 'marital', 'education', 'default', 'housing',
+                       'loan', 'contact', 'month', 'day_of_week', 'poutcome',
+                       'age_group', 'economic_condition', 'contact_recency']
+    df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
+
+    # Step 3: same col
+    for col in feature_columns:
+        if col not in df_encoded.columns:
+            df_encoded[col] = 0
+
+    df_encoded = df_encoded[feature_columns]
+
+    # Step 5: Scaling numerical since diff scale
+    numerical_cols = list(scaler.feature_names_in_)
+    df_scaled = df_encoded.copy()
+    df_scaled[numerical_cols] = scaler.transform(df_encoded[numerical_cols])
+
+    return df_scaled.values
+#---------------------------------------------------------------------------------------------------------
+
+
+
+
+#--------------------------------------------------------------------------------------------------------- 
+# SECTION 7: RECOMMENDED ACTIONS GENERATOR
+# so that can show the rm some talking points based on the customer profile & prediction
+
+def generate_recommendations(prediction, probability, age, job, poutcome, emp_var_rate,
+                              pdays, previous, default, housing, loan, contact, education):
+    """ This is so that have specific RM talking point and like the rm can dont blank out if nothing to say can help them 
+    to realte too """
+    actions = [] # empty array to collect
+
+    if prediction == 1:
+        # meaning that there is HIGH POTENTIAL of the customer
+        
+        if poutcome == 'success':
+            # This feature meaning that customer had previously subscribed can be used as ref
+            actions.append("Previous campaign was <strong>successful</strong> - You may want to reference their past term deposit experience and highlight improved rates from then")
+
+        if age > 60:
+            # This mean that elderly customers prioritise safety risks
+            actions.append("Customer is <strong>retired/elderly</strong> - You may want to emphasise guaranteed returns, and deposit insurance protection from SDIC")
+        elif age <= 30:
+            # This mean that young customers may want to be discipline and save and can convey message 
+            actions.append("Customer is <strong>young</strong> - You may want to position and phrase term deposit subscription as a disciplined savings tool to build financial foundation as well as grow the money")
+
+        if emp_var_rate < 0:
+            # this mean weak economy and people will seek safe investments like term deposits
+            actions.append("Economy is <strong>weakening</strong> - You may want to highlight term deposits as a safe investment to customers especially during market uncertainty")
+
+        if default == 'no' and loan == 'no' and housing == 'no':
+            # No debt means likely has money available to invest
+            actions.append("Customer has <strong>no existing debt</strong> - likely has disposable income available for investment")
+
+        if contact == 'cellular':
+            # Mobile contact so that can follow up
+            actions.append("Contact via <strong>cellular</strong> - customer is reachable on mobile, you may want to consider sending follow-up SMS to check in with them")
+
+        if not actions:
+            # Fallback last 
+            actions.append("Customer profile shows <strong>strong subscription signals</strong> - You may want to prioritise them for immediate follow-ups")
+    
+    else:
+        # meaning there is LOW POTENTIAL
+        #         
+        if poutcome == 'failure':
+            # customer indicate previous campaign failed and be more careful in marketing 
+            actions.append("Previous campaign <strong>failed</strong> - You may want to avoid hard-sell approach and focus on explaining changed circumstances to them")
+
+        if pdays == 999 and previous == 0:
+            # meaning customer never contacted before and should build rapport
+            actions.append("Customer was <strong>never contacted before</strong> - You may want to introduce yourself first to build rapport before pitching")
+
+        if default == 'yes':
+            # meaning credit default have
+            actions.append("Customer has <strong>credit default</strong> - They may face financial difficulties so you may want to approach sensibly")
+
+        if emp_var_rate > 0:
+            # meaning strong economy so customer may prefer risk investments
+            actions.append("Economy is <strong>strong</strong> - customer may prefer higher-risk investments, you may want to mention flexibility of shorter term deposits")
+
+        if education in ['basic.4y', 'basic.6y', 'illiterate']:
+            # meaning customer has lower education level, can use simpler language to explain products
+            actions.append("Consider using <strong>simpler language</strong> to explain term deposit benefits and avoid financial jargon")
+
+        if not actions:
+            # Fallback 
+            actions.append("Customer shows <strong>low subscription likelihood</strong> - You may want to deprioritise and allocate time to higher-potential prospects")
+
+    return actions # Return reco
+#---------------------------------------------------------------------------------------------------------
+
+
+
+
+#---------------------------------------------------------------------------------------------------------
+# SECTION 8: MAIN APP
