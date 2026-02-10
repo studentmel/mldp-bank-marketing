@@ -699,6 +699,9 @@ def apply_theme():
 
 #---------------------------------------------------------------------------------------------------------
 
+
+
+#---------------------------------------------------------------------------------------------------------
 # SECTION 5: LOADING MODEL FUNCTIONS
 
 # so that can load the trained model
@@ -743,5 +746,59 @@ def load_thresholds():
             return X_train['emp.var.rate'].median(), X_train['nr.employed'].median()
         except FileNotFoundError:
             # last last falllback is hardcoded default values
-            return 1.1, 5191.0
+            return 1.1, 5191.0 # never reaches here since have threshold 
+#---------------------------------------------------------------------------------------------------------
+
+
+
+
+#---------------------------------------------------------------------------------------------------------
+# SECTION 6: GAUGE CHART
+
+# for plotly gauge chart for prediction probability
+
+def create_gauge_chart(probability):
+    """Need this for the visuals so that have plotly gauge chart for probability visual"""
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", # so that can show gauge and number
+
+        value=probability * 100, # this is so that converting the probability to %
+        domain={'x': [0, 1], 'y': [0, 1]},
+        number={
+            'suffix': '%', # after n.o. %
+            'font': {'size': 48, 'color': '#5EFCE8', 'family': 'DM Sans'}
+        },
+        gauge={
+            'axis': {
+                'range': [0, 100], #range 0 % to 100%
+                'tickwidth': 1,
+                'tickcolor': 'rgba(255,255,255,0.15)', #tick marks
+                'tickfont': {'color': 'rgba(255,255,255,0.4)', 'size': 11}
+            },
+            'bar': {'color': '#6C63FF', 'thickness': 0.3}, 
+            'bgcolor': 'rgba(255,255,255,0.03)',
+            'borderwidth': 0,
+            'steps': [
+                #three colour for the gauge so that can also give the user a better idea 
+                # and also at glance understanding 
+                {'range': [0, 30], 'color': 'rgba(248, 113, 113, 0.15)'}, # For red zone (0-30%)
+                {'range': [30, 50], 'color': 'rgba(251, 191, 36, 0.15)'}, # Yellow zone (30-50%)
+                {'range': [50, 100], 'color': 'rgba(52, 211, 153, 0.15)'} # Green zone (50-100%)
+            ],
+            'threshold': {
+                'line': {'color': '#5EFCE8', 'width': 3},
+                'thickness': 0.8,
+                'value': probability * 100
+            }
+        }
+    ))
+    fig.update_layout(
+        height=280,
+        margin=dict(l=20, r=20, t=25, b=15),
+        font=dict(family='DM Sans', size=13, color='rgba(255,255,255,0.6)'),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    return fig
+
 
